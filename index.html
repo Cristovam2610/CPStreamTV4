@@ -1707,45 +1707,51 @@ function switchSeason(s){curSeason=s;document.querySelectorAll('.season-btn').fo
 function renderEps(list){const el=document.getElementById('ep-list');el.innerHTML='';if(!list.length){el.innerHTML='<div style="padding:24px;text-align:center;color:var(--muted);">Sem episódios.</div>';return;}list.forEach(ep=>{const row=document.createElement('div');row.className='ep-row';row.innerHTML=`<span class="ep-n">E${ep.episode_num||'?'}</span><span class="ep-name">${esc(ep.title||'Episódio '+ep.episode_num)}</span><span class="ep-dur">${ep.info?.duration||''}</span><span class="ep-play">▶</span>`;row.onclick=()=>playEpisode(ep);el.appendChild(row);});}
 function closeEpModal(){document.getElementById('ep-modal').classList.remove('show');}
 
-// ✅ FIX 3: liveUrls — HTTPS primeiro, remove porta 8080 (SSL inválido)
-function liveUrls(id){
-  const{server:s,user:u,pass:p}=CFG;
-  const b  =s.replace(/\/+$/,'');
-  const hs =b.replace(/^http:\/\//,'https://');
-  const hp =b.replace(/^https:\/\//,'http://');
+// ✅ FIX CLOUDFLARE: porta 8080 não passa pelo proxy CF — vai direto ao servidor
+// Ordem: HTTPS (pode cair no CF) → HTTP 80 → HTTP 8080 (bypass CF proxy)
+function liveUrls(id) {
+  const {server:s, user:u, pass:p} = CFG;
+  const b  = s.replace(/\/+$/, '');
+  const hs = b.replace(/^http:\/\//, 'https://');
+  // extrai host limpo sem porta para montar alternativas
+  const host = hs.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
   return [
-    `${hs}/live/${u}/${p}/${id}.m3u8`,   // ✅ HTTPS m3u8
-    `${hs}/live/${u}/${p}/${id}.ts`,      // ✅ HTTPS ts
-    `${hs}/live/${u}/${p}/${id}`,         // ✅ HTTPS sem extensão
-    `${hp}/live/${u}/${p}/${id}.m3u8`,   // fallback HTTP
-    `${hp}/live/${u}/${p}/${id}.ts`,      // fallback HTTP
-    `${hp}/live/${u}/${p}/${id}`,         // fallback HTTP sem ext
+    `${hs}/live/${u}/${p}/${id}.m3u8`,            // 1. HTTPS padrão
+    `${hs}/live/${u}/${p}/${id}.ts`,               // 2. HTTPS ts
+    `http://${host}/live/${u}/${p}/${id}.m3u8`,    // 3. HTTP porta 80
+    `http://${host}/live/${u}/${p}/${id}.ts`,       // 4. HTTP ts porta 80
+    `http://${host}:8080/live/${u}/${p}/${id}.m3u8`,// 5. HTTP 8080 — bypass CF proxy
+    `http://${host}:8080/live/${u}/${p}/${id}.ts`,  // 6. HTTP 8080 ts
+    `http://${host}:8080/live/${u}/${p}/${id}`,     // 7. HTTP 8080 sem ext
+    `${hs}/live/${u}/${p}/${id}`,                   // 8. HTTPS sem ext
   ];
 }
 
-// ✅ FIX 4: movieUrls — HTTPS primeiro
-function movieUrls(id,ext){
-  const{server:s,user:u,pass:p}=CFG;
-  const b =s.replace(/\/+$/,'');
-  const hs=b.replace(/^http:\/\//,'https://');
-  const hp=b.replace(/^https:\/\//,'http://');
-  const exts=ext?[ext,'mp4','mkv','avi']:['mp4','mkv','avi'];
-  const out=[];
-  exts.forEach(e=>out.push(`${hs}/movie/${u}/${p}/${id}.${e}`));
-  exts.forEach(e=>out.push(`${hp}/movie/${u}/${p}/${id}.${e}`));
+// ✅ FIX CLOUDFLARE: mesma estratégia para filmes
+function movieUrls(id, ext) {
+  const {server:s, user:u, pass:p} = CFG;
+  const b  = s.replace(/\/+$/, '');
+  const hs = b.replace(/^http:\/\//, 'https://');
+  const host = hs.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+  const exts = ext ? [ext,'mp4','mkv','avi'] : ['mp4','mkv','avi'];
+  const out = [];
+  exts.forEach(e => out.push(`${hs}/movie/${u}/${p}/${id}.${e}`));           // HTTPS
+  exts.forEach(e => out.push(`http://${host}/movie/${u}/${p}/${id}.${e}`));  // HTTP 80
+  exts.forEach(e => out.push(`http://${host}:8080/movie/${u}/${p}/${id}.${e}`)); // HTTP 8080
   return out;
 }
 
-// ✅ FIX 5: epUrls — HTTPS primeiro
-function epUrls(id,ext){
-  const{server:s,user:u,pass:p}=CFG;
-  const b =s.replace(/\/+$/,'');
-  const hs=b.replace(/^http:\/\//,'https://');
-  const hp=b.replace(/^https:\/\//,'http://');
-  const exts=ext?[ext,'mkv','mp4','avi']:['mkv','mp4','avi'];
-  const out=[];
-  exts.forEach(e=>out.push(`${hs}/series/${u}/${p}/${id}.${e}`));
-  exts.forEach(e=>out.push(`${hp}/series/${u}/${p}/${id}.${e}`));
+// ✅ FIX CLOUDFLARE: mesma estratégia para episódios
+function epUrls(id, ext) {
+  const {server:s, user:u, pass:p} = CFG;
+  const b  = s.replace(/\/+$/, '');
+  const hs = b.replace(/^http:\/\//, 'https://');
+  const host = hs.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+  const exts = ext ? [ext,'mkv','mp4','avi'] : ['mkv','mp4','avi'];
+  const out = [];
+  exts.forEach(e => out.push(`${hs}/series/${u}/${p}/${id}.${e}`));
+  exts.forEach(e => out.push(`http://${host}/series/${u}/${p}/${id}.${e}`));
+  exts.forEach(e => out.push(`http://${host}:8080/series/${u}/${p}/${id}.${e}`));
   return out;
 }
 
@@ -1755,30 +1761,175 @@ function playMovie(item){isVOD=true;playerItem=item;setPlayerInfo(item.name||ite
 function playEpisode(ep){closeEpModal();isVOD=true;playerItem={stream_id:ep.id,name:ep.title||'Episódio',stream_icon:seriesData?.info?.cover||''};const title=`${modalItem?.name||''} — T${curSeason}E${ep.episode_num} ${ep.title||''}`;setPlayerInfo(title,'',seriesData?.info?.cover||'',false);document.getElementById('epg-btn').style.display='none';addToHistory({stream_id:ep.id,name:title,stream_icon:seriesData?.info?.cover||''},'series');openPlayer(epUrls(ep.id,ep.container_extension));}
 
 function openPlayer(urls,resumePos){document.getElementById('player-page').classList.add('show');playerUrls=urls;playerUrlIdx=0;mediaErrCount=0;showPlayerSpinner(true);showPlayerErr(false);closeResume();hideQualityPanel();hideTracksPanel();if(resumePos&&resumePos>5){document.getElementById('resume-yes-btn').dataset.pos=resumePos;document.getElementById('resume-bar').classList.add('show');}loadUrl(0);showOverlay();}
-function loadUrl(idx){
-  if(idx>=playerUrls.length){showPlayerSpinner(false);showPlayerErr(true,'⚠ Stream indisponível em todos os formatos testados.');return;}
-  playerUrlIdx=idx;const url=playerUrls[idx];const v=document.getElementById('player-video');
-  if(hls){hls.destroy();hls=null;}v.src='';v.muted=isMuted;
-  if(url.includes('.m3u8')&&Hls.isSupported()){
-    const hlsCfg=isVOD?{enableWorker:true,lowLatencyMode:false,backBufferLength:120,maxBufferLength:120,maxMaxBufferLength:240,startLevel:-1,abrEwmaDefaultEstimate:2000000,manifestLoadingTimeOut:15000,manifestLoadingMaxRetry:4,levelLoadingTimeOut:15000,fragLoadingTimeOut:25000,fragLoadingMaxRetry:6,fragLoadingRetryDelay:500,xhrSetup:xhr=>{xhr.withCredentials=false;}}:{enableWorker:true,lowLatencyMode:false,backBufferLength:60,maxBufferLength:60,maxMaxBufferLength:120,startLevel:-1,abrEwmaDefaultEstimate:1500000,manifestLoadingTimeOut:12000,manifestLoadingMaxRetry:4,levelLoadingTimeOut:12000,fragLoadingTimeOut:20000,fragLoadingMaxRetry:6,fragLoadingRetryDelay:1000,xhrSetup:xhr=>{xhr.withCredentials=false;}};
-    hls=new Hls(hlsCfg);hls.loadSource(url);hls.attachMedia(v);
-    hls.on(Hls.Events.MANIFEST_PARSED,(_,d)=>{v.play().catch(()=>{});showPlayerSpinner(false);mediaErrCount=0;isPlaying=true;document.getElementById('btn-pp').textContent='⏸';populateQualityLevels(d.levels);});
-    hls.on(Hls.Events.ERROR,(_,d)=>{if(!d.fatal){if(d.type===Hls.ErrorTypes.MEDIA_ERROR)hls.recoverMediaError();return;}if(d.type===Hls.ErrorTypes.MEDIA_ERROR&&mediaErrCount<3){mediaErrCount++;setTimeout(()=>hls.recoverMediaError(),500);}else{hls.destroy();hls=null;loadUrl(playerUrlIdx+1);}});
-    let stallTimer=null;
-    hls.on(Hls.Events.FRAG_BUFFERED,()=>{showPlayerSpinner(false);clearTimeout(stallTimer);});
-    const v2=document.getElementById('player-video');
-    v2.onwaiting=()=>{showPlayerSpinner(true);stallTimer=setTimeout(()=>{if(v2.paused||v2.ended)return;if(hls)hls.startLoad();},8000);};
-    v2.onplaying=()=>{showPlayerSpinner(false);clearTimeout(stallTimer);};
-    hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,(_,d)=>{if(d.audioTracks&&d.audioTracks.length>1)populateAudioTracks(d.audioTracks);});
-    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED,(_,d)=>{if(d.subtitleTracks&&d.subtitleTracks.length>0)populateSubtitleTracks(d.subtitleTracks);});
-    hls.on(Hls.Events.FRAG_LOADED,(_,d)=>{if(d.frag&&d.frag.sn===0&&hls&&hls.audioTracks&&hls.audioTracks.length>1)populateAudioTracks(hls.audioTracks);});
-  }else{
-    v.src=url;v.load();const pp=v.play();
-    if(pp)pp.then(()=>{showPlayerSpinner(false);isPlaying=true;document.getElementById('btn-pp').textContent='⏸';}).catch(()=>loadUrl(playerUrlIdx+1));
-    v.addEventListener('loadedmetadata',populateNativeTracks,{once:true});clearQualityLevels();
-    v.onwaiting=()=>showPlayerSpinner(true);v.onplaying=()=>showPlayerSpinner(false);
+// ✅ FIX CLOUDFLARE: headers que imitam requisição legítima do browser
+// O Cloudflare free bloqueia streaming sem Referer/Origin válidos
+function _cfXhrSetup(xhr, streamUrl) {
+  xhr.withCredentials = false;
+  // Simula requisição do próprio servidor — bypassa a verificação do CF
+  try {
+    const origin = new URL(streamUrl).origin;
+    xhr.setRequestHeader('Origin',  origin);
+    xhr.setRequestHeader('Referer', origin + '/');
+  } catch(_) {}
+  xhr.setRequestHeader('Accept', '*/*');
+  xhr.setRequestHeader('Accept-Language', 'pt-BR,pt;q=0.9,en;q=0.8');
+  xhr.setRequestHeader('Cache-Control', 'no-cache');
+  xhr.setRequestHeader('Pragma', 'no-cache');
+}
+
+// Detecta a mensagem de bloqueio do Cloudflare no conteúdo do fragmento
+function _isCloudflareBan(data) {
+  try {
+    if (!data) return false;
+    // CF retorna HTML com essa string quando bloqueia streaming
+    const txt = typeof data === 'string' ? data
+      : (data instanceof ArrayBuffer ? new TextDecoder().decode(new Uint8Array(data,0,512)) : '');
+    return txt.includes('Cloudflare') || txt.includes('cfl.re') || txt.includes('restricted');
+  } catch(_) { return false; }
+}
+
+function loadUrl(idx) {
+  if (idx >= playerUrls.length) {
+    showPlayerSpinner(false);
+    showPlayerErr(true, '⚠ Stream indisponível. Tente outro servidor (SRV-1 a SRV-4).');
+    return;
   }
-  v.ontimeupdate=()=>{if(v.buffered.length){const pct=(v.buffered.end(v.buffered.length-1)/(v.duration||1))*100;document.getElementById('pl-buf-fill').style.width=Math.min(pct,100)+'%';}updateSeekBar();if(isVOD)autoSavePos();};
+  playerUrlIdx = idx;
+  const url = playerUrls[idx];
+  const v = document.getElementById('player-video');
+  if (hls) { hls.destroy(); hls = null; }
+  v.src = ''; v.muted = isMuted;
+
+  if (url.includes('.m3u8') && Hls.isSupported()) {
+    const baseCfg = {
+      enableWorker:           true,
+      lowLatencyMode:         false,
+      startLevel:             -1,
+      // ✅ xhrSetup com headers anti-Cloudflare
+      xhrSetup: (xhr) => _cfXhrSetup(xhr, url),
+    };
+    const vodExtra = {
+      backBufferLength:          120,
+      maxBufferLength:           120,
+      maxMaxBufferLength:        240,
+      abrEwmaDefaultEstimate:    2000000,
+      manifestLoadingTimeOut:    15000,
+      manifestLoadingMaxRetry:   4,
+      levelLoadingTimeOut:       15000,
+      fragLoadingTimeOut:        25000,
+      fragLoadingMaxRetry:       6,
+      fragLoadingRetryDelay:     500,
+    };
+    const liveExtra = {
+      backBufferLength:          60,
+      maxBufferLength:           60,
+      maxMaxBufferLength:        120,
+      abrEwmaDefaultEstimate:    1500000,
+      manifestLoadingTimeOut:    12000,
+      manifestLoadingMaxRetry:   4,
+      levelLoadingTimeOut:       12000,
+      fragLoadingTimeOut:        20000,
+      fragLoadingMaxRetry:       6,
+      fragLoadingRetryDelay:     1000,
+    };
+    const hlsCfg = Object.assign({}, baseCfg, isVOD ? vodExtra : liveExtra);
+
+    hls = new Hls(hlsCfg);
+    hls.loadSource(url);
+    hls.attachMedia(v);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, (_, d) => {
+      v.play().catch(() => {});
+      showPlayerSpinner(false);
+      mediaErrCount = 0;
+      isPlaying = true;
+      document.getElementById('btn-pp').textContent = '⏸';
+      populateQualityLevels(d.levels);
+    });
+
+    // ✅ Detecta bloqueio CF via conteúdo do manifesto/fragmento
+    hls.on(Hls.Events.MANIFEST_LOADED, (_, data) => {
+      if (_isCloudflareBan(data?.networkDetails?.responseText)) {
+        console.warn('[CPStream] Cloudflare ban detectado no manifesto → fallback HTTP');
+        hls.destroy(); hls = null;
+        loadUrl(playerUrlIdx + 1);
+      }
+    });
+
+    hls.on(Hls.Events.FRAG_LOADED, (_, data) => {
+      // Verifica CF ban no primeiro fragmento
+      if (data?.frag?.sn === 0 && _isCloudflareBan(data?.networkDetails?.responseText)) {
+        console.warn('[CPStream] Cloudflare ban detectado no fragmento → fallback HTTP');
+        hls.destroy(); hls = null;
+        loadUrl(playerUrlIdx + 1);
+        return;
+      }
+      showPlayerSpinner(false);
+      if (data?.frag?.sn === 0 && hls?.audioTracks?.length > 1)
+        populateAudioTracks(hls.audioTracks);
+    });
+
+    hls.on(Hls.Events.ERROR, (_, d) => {
+      if (!d.fatal) {
+        if (d.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+        return;
+      }
+      // ✅ 403/410 = bloqueio CF — vai pro próximo URL sem tentar recuperar
+      const status = d.response?.code || d.networkDetails?.status;
+      if (status === 403 || status === 410 || status === 503) {
+        console.warn('[CPStream] HTTP ' + status + ' (possível CF ban) → próximo URL');
+        hls.destroy(); hls = null;
+        loadUrl(playerUrlIdx + 1);
+        return;
+      }
+      if (d.type === Hls.ErrorTypes.MEDIA_ERROR && mediaErrCount < 3) {
+        mediaErrCount++;
+        setTimeout(() => hls.recoverMediaError(), 500);
+      } else {
+        hls.destroy(); hls = null;
+        loadUrl(playerUrlIdx + 1);
+      }
+    });
+
+    let stallTimer = null;
+    hls.on(Hls.Events.FRAG_BUFFERED, () => { showPlayerSpinner(false); clearTimeout(stallTimer); });
+    const v2 = document.getElementById('player-video');
+    v2.onwaiting = () => {
+      showPlayerSpinner(true);
+      stallTimer = setTimeout(() => { if (!v2.paused && !v2.ended && hls) hls.startLoad(); }, 8000);
+    };
+    v2.onplaying = () => { showPlayerSpinner(false); clearTimeout(stallTimer); };
+
+    hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,    (_, d) => { if (d.audioTracks?.length > 1)    populateAudioTracks(d.audioTracks); });
+    hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_, d) => { if (d.subtitleTracks?.length > 0) populateSubtitleTracks(d.subtitleTracks); });
+
+  } else {
+    // ✅ Para .ts e MP4 diretos — também tenta HTTP se HTTPS falhar
+    v.src = url; v.load();
+    const pp = v.play();
+    if (pp) pp
+      .then(() => { showPlayerSpinner(false); isPlaying = true; document.getElementById('btn-pp').textContent = '⏸'; })
+      .catch(() => loadUrl(playerUrlIdx + 1));
+    v.addEventListener('loadedmetadata', populateNativeTracks, { once: true });
+    clearQualityLevels();
+    v.onwaiting = () => showPlayerSpinner(true);
+    v.onplaying = () => showPlayerSpinner(false);
+
+    // ✅ Detecta CF ban via erro de carregamento de vídeo
+    v.onerror = () => {
+      console.warn('[CPStream] Erro ao carregar vídeo direto → próximo URL');
+      loadUrl(playerUrlIdx + 1);
+    };
+  }
+
+  v.ontimeupdate = () => {
+    if (v.buffered.length) {
+      const pct = (v.buffered.end(v.buffered.length - 1) / (v.duration || 1)) * 100;
+      document.getElementById('pl-buf-fill').style.width = Math.min(pct, 100) + '%';
+    }
+    updateSeekBar();
+    if (isVOD) autoSavePos();
+  };
 }
 function closePlayer(){document.getElementById('player-page').classList.remove('show');}
 function backToApp(){stopPlayer();hideEPG();clearTimeout(epgTimer);closePlayer();}
